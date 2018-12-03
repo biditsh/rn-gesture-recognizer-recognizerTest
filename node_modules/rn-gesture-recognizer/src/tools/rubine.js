@@ -1,0 +1,645 @@
+//
+// Point class
+//
+function Point(x, y) // constructor
+{
+	this.X = x;
+	this.Y = y;
+	this.time = null;
+}
+
+function FrechetHelpderData(meanPoints, deviation, symmetrical){
+	this.meanPoints = meanPoints;
+	this.deviation = deviation;
+	this.symmetrical = symmetrical;
+}
+
+function PathLength(points)
+{
+	var d = 0.0;
+	for (var i = 1; i < points.length; i++)
+		d += Distance(points[i - 1], points[i]);
+	return d;
+}
+
+function Distance(p1, p2)
+{
+	var dx = p2.X - p1.X;
+	var dy = p2.Y - p1.Y;
+	return Math.sqrt(dx * dx + dy * dy + 0.01);
+}
+
+////////////// OUR CODE BELOW
+
+/* 
+
+Training data array: 
+
+gesture <- Array of Point
+gestureClass <- Array of gesture for a single gesture class
+gestureClasses <- Array of gestureClass 
+
+*/
+
+// Constants
+const NUM_FEATURES = 11;
+const math = require('mathjs');
+// var gestures = require('./exampleGestures.js');
+// console.log(gestures.line2);
+
+// helper function for f9
+function getAngle(p1, p2, p3) 
+{
+	let dxp1 = p3.X - p2.X;
+	let dyp1 = p3.Y - p2.Y;
+	let dxp0 = p2.X - p1.X;
+	let dyp0 = p2.Y - p1.Y;
+	return Math.atan((dxp1*dyp0 - dxp0*dyp1) / (dxp1*dxp0 + dyp1*dyp0 + 0.01)); // adding 0.01 to avoid dividing by 0 and getting NaN
+}
+
+//resizes the set of points to specific size
+function resize(points, size){
+	var minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
+	for (var i = 0; i < points.length; i++) {
+		minX = Math.min(minX, points[i].X);
+		minY = Math.min(minY, points[i].Y);
+		maxX = Math.max(maxX, points[i].X);
+		maxY = Math.max(maxY, points[i].Y);
+	}
+	p1 = new Point(minX, minY);
+	p2 = new Point(maxX, maxY);
+	diag = Distance(p1,p2);
+
+	fact = size/diag;
+	points.forEach(point => {
+		point.X = point.X * fact;
+		point.Y = point.Y * fact;
+	});
+	return points
+}
+
+
+// scaling function:
+const SquareSize = 500.0;
+const Origin = new Point(0,0);
+
+// Rectangle class
+function Rectangle(x, y, width, height) // constructor
+{
+	this.X = x;
+	this.Y = y;
+	this.Width = width;
+	this.Height = height;
+}
+function BoundingBox(points)
+{
+	var minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
+	for (var i = 0; i < points.length; i++) {
+		minX = Math.min(minX, points[i].X);
+		minY = Math.min(minY, points[i].Y);
+		maxX = Math.max(maxX, points[i].X);
+		maxY = Math.max(maxY, points[i].Y);
+	}
+	return new Rectangle(minX, minY, maxX - minX, maxY - minY);
+}
+
+//helper function to get IndivativeAngle
+function Centroid(points)
+{
+	var x = 0.0, y = 0.0;
+	for (var i = 0; i < points.length; i++) {
+		x += points[i].X;
+		y += points[i].Y;
+	}
+	x /= points.length;
+	y /= points.length;
+	return new Point(x, y);
+}
+
+function Resample(points, n)
+{
+	var I = PathLength(points) / (n - 1); // interval length
+	var D = 0.0;
+	var newpoints = new Array(points[0]);
+	for (var i = 1; i < points.length; i++)
+	{
+		var d = Distance(points[i-1], points[i]);
+		if ((D + d) >= I)
+		{
+			var qx = points[i-1].X + ((I - D) / d) * (points[i].X - points[i-1].X);
+			var qy = points[i-1].Y + ((I - D) / d) * (points[i].Y - points[i-1].Y);
+			var q = new Point(qx, qy);
+			newpoints[newpoints.length] = q; // append new point 'q'
+			points.splice(i, 0, q); // insert 'q' at position i in points s.t. 'q' will be the next i
+			D = 0.0;
+		}
+		else D += d;
+	}
+	if (newpoints.length == n - 1) // somtimes we fall a rounding-error short of adding the last point, so add it if so
+		newpoints[newpoints.length] = new Point(points[points.length - 1].X, points[points.length - 1].Y);
+	return newpoints;
+}
+
+//helper function to rotate the points
+function IndicativeAngle(points)
+{
+	var c = Centroid(points);
+	return Math.atan2(c.Y - points[0].Y, c.X - points[0].X);
+}
+
+function RotateBy(points, radians) // rotates points around centroid
+{
+	var c = Centroid(points);
+	var cos = Math.cos(radians);
+	var sin = Math.sin(radians);
+	var newpoints = new Array();
+	for (var i = 0; i < points.length; i++) {
+		var qx = (points[i].X - c.X) * cos - (points[i].Y - c.Y) * sin + c.X
+		var qy = (points[i].X - c.X) * sin + (points[i].Y - c.Y) * cos + c.Y;
+		newpoints[newpoints.length] = new Point(qx, qy);
+	}
+	return newpoints;
+}
+
+function TranslateTo(points, pt) // translates points' centroid
+{
+	var c = Centroid(points);
+	var newpoints = new Array();
+	for (var i = 0; i < points.length; i++) {
+		var qx = points[i].X + pt.X - c.X;
+		var qy = points[i].Y + pt.Y - c.Y;
+		newpoints[newpoints.length] = new Point2(qx, qy);
+	}
+	return newpoints;
+}
+
+
+function normalize(points){
+	newpoints = Resample(points, 200);		
+	newpoints = TranslateTo(newpoints, Origin);
+	newpoints = resize(newpoints, SquareSize);
+	// let radians = IndicativeAngle(points);
+	// points = RotateBy(points, -radians);
+	return newpoints
+}
+
+
+// this is the initial cosine of the gesture 
+function f1(points)
+{
+	p1 = points[0];
+	p2 = points[2];
+	return ((p2.X - p1.X) / Distance(p1, p2));
+}
+
+// this is the initial sine of the gesture 
+function f2(points)
+{
+	p1 = points[0];
+	p2 = points[2];
+	return ((p2.Y - p1.Y) / Distance(p1, p2));
+}
+
+// the length of the bounding box diagonal
+function f3(points)
+{
+	var minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
+	for (var i = 0; i < points.length; i++) {
+		minX = Math.min(minX, points[i].X);
+		minY = Math.min(minY, points[i].Y);
+		maxX = Math.max(maxX, points[i].X);
+		maxY = Math.max(maxY, points[i].Y);
+	}
+	p1 = new Point(minX, minY);
+	p2 = new Point(maxX, maxY);
+	return Distance(p1, p2);
+}
+
+// the angle of the bounding box diagonal
+function f4(points)
+{
+	var minX = +Infinity, maxX = -Infinity, minY = +Infinity, maxY = -Infinity;
+	for (var i = 0; i < points.length; i++) {
+		minX = Math.min(minX, points[i].X);
+		minY = Math.min(minY, points[i].Y);
+		maxX = Math.max(maxX, points[i].X);
+		maxY = Math.max(maxY, points[i].Y);
+	}
+	p1 = new Point(minX, minY);
+	p2 = new Point(maxX, maxY);
+	return Math.atan((p2.Y - p1.Y)/(p2.X - p1.X));
+}
+
+// the distance between the first and last point
+function f5(points)
+{
+	p1 = points[0];
+	p2 = points[points.length-1];
+	return Distance(p1, p2);
+}
+
+// the cosine between the first and last point
+function f6(points)
+{
+	p1 = points[0];
+	p2 = points[points.length-1];
+	return ((p2.X - p1.X) / Distance(p1, p2));
+}
+
+// the sine between the first and last point
+function f7(points)
+{
+	p1 = points[0];
+	p2 = points[points.length-1];
+	return ((p2.Y - p1.Y) / Distance(p1, p2));
+}
+
+// the path length
+function f8(points)
+{
+	return PathLength(points);
+}
+
+// the total angle traversed
+function f9(points)
+{
+	var sum = 0.0;
+	for (var i = 1; i < points.length-1; i++)
+		sum += getAngle(points[i - 1], points[i], points[i + 1]);
+	return sum;
+}
+
+// the sum of the absolute value of the angles
+function f10(points)
+{
+	var sum = 0.0;
+	for (var i = 1; i < points.length-1; i++)
+		sum += Math.abs(getAngle(points[i - 1], points[i], points[i + 1]));
+	return sum;
+}
+
+// the sum of the squares of the angles
+function f11(points)
+{
+	var sum = 0.0;
+	for (var i = 1; i < points.length-1; i++)
+		sum += Math.pow(getAngle(points[i - 1], points[i], points[i + 1]), 2);
+	return sum;
+}
+
+// takes feature of index `featureIndex` from a training set (all gestures in training set must
+// belong to the same gesture class) and returns the average of these values
+function getAvgFeatureForClass(gestureClass, featureIndex) {
+	let avg = 0;
+	switch (featureIndex) {
+		case 1:
+			gestureClass.forEach(set => {avg += f1(set);});
+			break;
+		case 2:
+			gestureClass.forEach(set => {avg += f2(set);});
+			break;
+		case 3:
+			gestureClass.forEach(set => {avg += f3(set);});
+			break;
+		case 4:
+			gestureClass.forEach(set => {avg += f4(set);});
+			break;
+		case 5:
+			gestureClass.forEach(set => {avg += f5(set);});
+			break;
+		case 6:
+			gestureClass.forEach(set => {avg += f6(set);});
+			break;
+		case 7:
+			gestureClass.forEach(set => {avg += f7(set);});
+			break;
+		case 8:
+			gestureClass.forEach(set => {avg += f8(set);});
+			break;
+		case 9:
+			gestureClass.forEach(set => {avg += f9(set);});
+			break;
+		case 10:
+			gestureClass.forEach(set => {avg += f10(set);});
+			break;
+		case 11:
+			gestureClass.forEach(set => {avg += f11(set);});
+			break;
+	}
+	avg /= gestureClass.length;
+	return avg;
+}
+
+// creates the average feature vector for a training set,
+// (all gestures in training set must belong to the same gesture class)
+function getAvgFeatureVectorForClass(gestureClass) {
+	let avgFeatureVector = new Array();
+	for (let i=1; i<NUM_FEATURES+1; i++) {
+		avgFeatureVector.push(getAvgFeatureForClass(gestureClass, i));
+	}
+	return avgFeatureVector;
+}
+
+// generates the feature vector for a set of points
+function getFeaturesForGesture(points){
+	features = new Array();
+	features.push(f1(points));
+	features.push(f2(points));
+	features.push(f3(points));
+	features.push(f4(points));
+	features.push(f5(points));
+	features.push(f6(points));
+	features.push(f7(points));
+	features.push(f8(points));
+	features.push(f9(points));
+	features.push(f10(points));
+	features.push(f11(points));
+	return features;
+}
+
+// generates the covariance matrix for a single gesture class from a training set
+// (all gestures in training set must belong to the same gesture class)
+function getCovarianceMatrix(gestureClass){
+	let E = gestureClass.length;
+	let avgFeatures = getAvgFeatureVectorForClass(gestureClass);
+	let covMatrix = [...Array(NUM_FEATURES)].map(e => Array(NUM_FEATURES));
+	featuresForGestureClass = new Array(E);
+
+	for (let i=0; i<E; i++){
+		featuresForGestureClass[i] = getFeaturesForGesture(gestureClass[i]);
+	}
+
+	let sum = 0;
+	for (let i=0; i<NUM_FEATURES; i++){
+		for (let j=0; j<NUM_FEATURES; j++){
+			for (let k=0; k<E; k++){
+				let features = featuresForGestureClass[k];
+				sum += (features[i] - avgFeatures[i])*(features[j] - avgFeatures[j]);
+			}
+			covMatrix[i][j] = sum;
+			sum = 0;
+		}
+	}
+	return covMatrix;
+}
+
+// creates the commonCovariance matrix for all gesture classes
+function getCommonCovarianceMatrix(gestureClasses){
+	let commonCovMatrix = [...Array(NUM_FEATURES)].map(e => Array(NUM_FEATURES));
+	let numClasses = gestureClasses.length; // C
+	let covMatrices = new Array(numClasses);
+	let numGestureExamples = 0;
+
+	for (let i=0; i<numClasses; i++){
+		numGestureExamples += gestureClasses[i].length;
+		covMatrices[i] = getCovarianceMatrix(gestureClasses[i]);
+	}
+	let denominator = -numClasses + numGestureExamples;
+
+	let sum = 0;
+	for (let i=0; i<NUM_FEATURES; i++){
+		for (let j=0; j<NUM_FEATURES; j++){
+			for (let k=0; k<numClasses; k++){
+				let covMatrix = covMatrices[k];
+				sum += covMatrix[i][j];
+			}
+			commonCovMatrix[i][j] = sum/denominator;
+			sum = 0;
+		}
+	}
+	return commonCovMatrix;
+}
+
+
+function getFeatureWeightsForClasses(gestureClasses){
+	let numClasses = gestureClasses.length;
+	let commonCovarianceMatrix = getCommonCovarianceMatrix(gestureClasses);
+	let invComCovMatrix = math.inv(commonCovarianceMatrix);  // this is a different math library than Math
+
+	let weights = [...Array(numClasses)].map(e => Array(NUM_FEATURES));
+	let sum=0;
+	for (let k=0; k<numClasses; k++){
+		let gestureClass = gestureClasses[k];
+		let averageFeatures = getAvgFeatureVectorForClass(gestureClass);
+		for (let j=0; j<NUM_FEATURES; j++){
+			for (let i=0; i<NUM_FEATURES; i++){
+				sum += invComCovMatrix[i][j]*averageFeatures[i];
+			}
+			weights[k][j] = sum;
+			sum = 0;
+		}
+	}
+	return weights; //weights is an array of array, elements of weights -> gesture class, elements of gesture class -> weight of feature 
+}
+
+function getWeight0s(gestureClasses){
+	let numClasses = gestureClasses.length;
+	let weight0s = new Array(numClasses);
+	let featureWeightsForClasses = getFeatureWeightsForClasses(gestureClasses);
+
+	let sum = 0;
+	for (let i=0; i<numClasses; i++){
+		let gestureClass = gestureClasses[i];
+		let avgFeatureForClass = getAvgFeatureVectorForClass(gestureClass);
+		for (let j=0; j<NUM_FEATURES; j++){
+			sum += featureWeightsForClasses[i][j] * avgFeatureForClass[j];
+		}
+		weight0s[i] = (-1/2) * sum;
+		sum = 0;
+	}
+	return weight0s; //weight0s is an array of w0 for each class, length = no. of gestures
+}
+
+function meanGesture(trainingPoints){
+	let retPoint = new Array();
+	let sumX, sumY;
+	let trainingSetLength = trainingPoints.length;
+	let pointsLength = trainingPoints[0].length; //function assumes length of all the point arrays to be same
+
+	for (let i=0; i<pointsLength; i++){
+		sumX = 0;
+		sumY = 0;
+		for (let j=0; j<trainingSetLength; j++){
+			sumX += trainingPoints[j][i].X
+			sumY += trainingPoints[j][i].Y
+		}
+		retPoint.push(new Point(sumX/trainingSetLength, sumY/trainingSetLength));
+	}
+	// return trainingPoints[0];
+	return retPoint;
+}
+
+// used for recursion withing the Frechet Distance algorithm
+function frechetHelper(ca, i, j, P, Q){
+	if (ca[i][j] > -1){		
+		return ca[i][j];
+	}
+	else if (i==0 && j==0){		
+		ca[i][j] = Distance(P[0],Q[0]);
+	}
+	else if (i>0 && j==0){	
+		ca[i][j] = Math.max(frechetHelper(ca,i-1,0,P,Q),Distance(P[i],Q[0]));
+	}
+	else if (i==0 && j>0){
+		ca[i][j] = Math.max(frechetHelper(ca,0,j-1,P,Q),Distance(P[0],Q[j]));
+	}
+	else if (i>0 && j>0){	
+		ca[i][j] = Math.max(Math.min(frechetHelper(ca,i-1,j,P,Q),frechetHelper(ca,i-1,j-1,P,Q),frechetHelper(ca,i,j-1,P,Q)),Distance(P[i],Q[j]));
+	}
+	else{		
+		ca[i][j] = Infinity;
+	}
+	return ca[i][j]
+}
+
+
+// returns Frechet distance between points1 and frechetDistanceHelperValues.mean
+function frechetDistance(points1, frechetDistanceHelperValues){
+	let points2 = frechetDistanceHelperValues.meanPoints;
+	if (frechetDistanceHelperValues.symmetrical){
+		let radians = IndicativeAngle(points1);
+		points1 = RotateBy(points1, -radians);
+		radians = IndicativeAngle(points2);
+		points2 = RotateBy(points2, -radians);
+	}
+
+	l1 = points1.length;
+	l2 = points2.length;
+	ca = [...Array(l1)].map(e => Array.apply(null, Array(l2)).map(Number.prototype.valueOf,-1));
+	frechetD = frechetHelper(ca, l1-1, l2-1, points1, points2)
+	return [frechetD, (frechetDistanceHelperValues.deviation<frechetD)];
+}
+
+
+function getFrechetDeviation(trainingGestures){
+	let meanPoints = meanGesture(trainingGestures);
+	l1 = meanPoints.length;
+
+	max = 0;
+	trainingGestures.forEach(points => {
+		l2 = points.length;
+		ca = [...Array(l1)].map(e => Array.apply(null, Array(l2)).map(Number.prototype.valueOf,-1));
+		frechetD = frechetHelper(ca, l1-1, l2-1, meanPoints, points);
+		if (max < frechetD){
+			max = frechetD;
+		}
+	});
+	return (max + 0.3*max);
+}
+
+
+
+let gestureRecognizer = class{
+	constructor(trainingData){
+		this._numClasses = 0;
+		this._classNames = new Array();
+		this._gestureClasses = new Array()
+
+		this._invComCovMatrix = new Array();
+		this._avgFeatures = new Array();
+		this._weight0sofAllVectors = new Array();
+		this._featureWeightsForClasses = new Array();	
+		
+		this._weight0sofAllVectors = new Array();
+		this._featureWeightsForClasses = new Array();
+
+		// Where training data is added in order to train
+		if (trainingData) {
+			this.addGestures(trainingData);
+		}
+	}
+
+	train(){
+		for (let i=0; i<this._numClasses; i++){
+			this._avgFeatures.push(getAvgFeatureVectorForClass(this._gestureClasses[i]))
+		}
+		// console.log("COV ::: ", getCommonCovarianceMatrix(this._gestureClasses));
+
+		this._invComCovMatrix = math.inv(getCommonCovarianceMatrix(this._gestureClasses));
+		// console.log("COMMON COV ::: ", this._invComCovMatrix)
+
+		this._weight0sofAllVectors = getWeight0s(this._gestureClasses);
+		this._featureWeightsForClasses = getFeatureWeightsForClasses(this._gestureClasses);
+		console.log('numClasses: ', this._numClasses);
+	}
+
+	addGestures(trainingData) {
+		var self = this;
+		trainingData.forEach(function(gestureClass) {
+			self.addGesture(gestureClass.gestureClassName, gestureClass.trainingGestures);
+		})
+		this.train();
+	}
+	
+	addGesture(className, gestureClass){
+		this._classNames.push(className);
+		this._gestureClasses.push(gestureClass);
+		this._numClasses += 1;
+	}
+
+	removeGesture(className){
+		let index = this._classNames.indexOf(className);
+		this.className.splice(index, 1);
+		this._gestureClasses.splice(index, 1);
+		this.train();
+	}
+
+	classifyGesture(points){
+		points =  normalize(points)
+		let weightEval = new Array(this._numClasses);
+		let sum = 0;
+		let featureVector = getFeaturesForGesture(points);
+		for (let i=0; i<this._numClasses; i++){
+			for (let j=0; j<NUM_FEATURES; j++){
+				sum += this._featureWeightsForClasses[i][j] * featureVector[j];
+			}
+			weightEval[i] = this._weight0sofAllVectors[i] + sum;
+			sum = 0;
+		}
+		let max = Math.max.apply(Math, weightEval);
+		let maxIndex = weightEval.indexOf(max);
+		// console.log(weightEval)
+		// console.log(max, maxIndex)
+		// let classificationProb = this.getClassificationProb(weightEval);
+		// console.log("PROB ::: ", classificationProb);
+		// this.getMahalanobisDistance(maxIndex, featureVector);
+
+		console.log(weightEval) 
+		console.log("rubine's classification ::: ", this._classNames[maxIndex])
+		let frechetD = frechetDistance(points, this._frechetDistanceHelperValues[maxIndex]);
+		console.log("Frechet Distance ::: ", frechetD[0], frechetD[1]);
+		if (frechetD[1]){
+			return "Unclassified";
+		}
+		else{
+			return this._classNames[maxIndex];
+
+		}
+		return this._classNames[maxIndex]
+
+	}
+
+	getClassificationProb(weights){
+		let max = Math.max.apply(Math, weights);
+		let maxWeightIndex = weights.indexOf(max);
+		let sum = 0;
+		for (let i=0; i<this._numClasses; i++){
+			sum += Math.exp(weights[i] - max);
+		}
+		return (1/sum);
+	}
+
+	getMahalanobisDistance(classIndex, featureVector){
+		let averageFeatures = this._avgFeatures[classIndex];
+		let sum = 0
+		for (let j=0; j<NUM_FEATURES; j++){
+			for (let k=0; k<NUM_FEATURES; k++){
+				sum += this._invComCovMatrix[j][k] * (featureVector[j] - averageFeatures[j]) * (featureVector[k] - averageFeatures[k]);
+			}
+		}
+		// console.log ("M Dist :  ", sum, "1/2 F2 : ", (1/2)*NUM_FEATURES*NUM_FEATURES);
+		return sum;
+	}
+};
+
+export default gestureRecognizer;

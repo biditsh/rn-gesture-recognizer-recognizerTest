@@ -1,0 +1,1 @@
+// React class that is basically the pad, that should take in those props, but also takes the training data from the traainer component
