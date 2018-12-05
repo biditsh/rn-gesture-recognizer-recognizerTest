@@ -7,7 +7,7 @@ export default class App extends Component{
     return (
       <View style={styles.container}>
         <Trainer
-          path={'/Users/bidit/Projects/recognizerTest/'}
+          path={'/Users/bidit/Projects/trainerTest/'}
           strokes={[]}
           containerStyle={{backgroundColor: 'rgba(0,0,0,0.01)'}}
           color={'#000000'}
